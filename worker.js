@@ -8,7 +8,7 @@ const { execSync } = require('child_process');
 const [driveFileId, style, voice, bgmFileId, apiKeysList, slideDelayStr, targetFolderId] = process.argv.slice(2);
 
 const apiKeys = apiKeysList.split(',').filter(k => k.trim() !== '');
-const slideDelayMs = (parseInt(slideDelayStr) || 15) * 1000;
+const slideDelayMs = Math.max((parseInt(slideDelayStr) || 15) * 1000, 20000); // Paksa minimal jeda 20 detik antar slide agar aman
 let currentKeyIndex = 0;
 
 function getNextApiKey() {
@@ -30,7 +30,7 @@ const youtube = google.youtube({ version: 'v3', auth: oauth2Client });
 const TEMP_DIR = path.join(__dirname, 'temp');
 
 async function main() {
-  console.log(`🚀 Memulai proses otomatisasi penuh...`);
+  console.log(`🚀 Memulai proses otomatisasi penuh (Mode Super Aman)...`);
   if (!fs.existsSync(TEMP_DIR)) fs.mkdirSync(TEMP_DIR);
 
   try {
@@ -47,7 +47,7 @@ async function main() {
 
     console.log('📄 Mengekstrak PDF menjadi gambar...');
     const imagePaths = await extractPdfToImages(pdfPath, TEMP_DIR);
-    const thumbnailPath = imagePaths[0]; // Slide pertama otomatis jadi thumbnail
+    const thumbnailPath = imagePaths[0];
 
     console.log(`🧠 Memulai proses AI Text-to-Speech...`);
     const slidesData = [];
@@ -60,30 +60,46 @@ async function main() {
       
       let success = false;
       let retries = 0;
+      const maxRetries = 5; // Ditingkatkan jadi 5 kali percobaan
       let usedKey = getNextApiKey();
 
-      while (!success && retries < 3) {
+      while (!success && retries < maxRetries) {
         try {
+          console.log(`      -> Memakai API Key berakhiran: ...${usedKey.slice(-4)}`);
+          
           const script = await generateScript(imgPath, style, usedKey);
+          
+          // JEDA AMAN: Napas 5 detik sebelum minta audio agar tidak kena burst limit
+          console.log(`      -> Teks berhasil. Menunggu 5 detik sebelum generate audio...`);
+          await new Promise(r => setTimeout(r, 5000)); 
+          
           await generateAudio(script, voice, audioPath, usedKey);
           
           fullScriptText += script + "\n\n";
           slidesData.push({ image: imgPath, audio: audioPath });
           success = true;
+          
         } catch (error) {
           if (error.message.includes('429') || error.message.includes('RESOURCE_EXHAUSTED')) {
-            console.log(`   ⚠️ Kunci API Limit (429). Rotasi Kunci & Istirahat 15 detik...`);
+            // Waktu tunggu bertingkat: 30s, 60s, 90s, 120s, 150s
+            const waitTime = 30000 * (retries + 1); 
+            console.log(`   ⚠️ Limit Kuota (429). Rotasi Kunci & Istirahat panjang ${waitTime/1000} detik (Coba ${retries + 1}/${maxRetries})...`);
+            
             usedKey = getNextApiKey(); 
-            await new Promise(r => setTimeout(r, 15000));
+            await new Promise(r => setTimeout(r, waitTime));
             retries++;
           } else {
-            throw error;
+            throw error; // Lempar jika errornya selain urusan limit
           }
         }
       }
 
-      if (!success) throw new Error(`Gagal memproses slide ${i + 1} setelah 3 kali mencoba.`);
-      if (i < imagePaths.length - 1) await new Promise(r => setTimeout(r, slideDelayMs));
+      if (!success) throw new Error(`Gagal memproses slide ${i + 1} setelah ${maxRetries} kali mencoba. Kemungkinan Limit Harian habis.`);
+      
+      if (i < imagePaths.length - 1) {
+          console.log(`   ⏳ Slide selesai. Jeda ritme aman ${slideDelayMs/1000} detik ke slide berikutnya...`);
+          await new Promise(r => setTimeout(r, slideDelayMs));
+      }
     }
 
     console.log('🎬 Mulai merender video utuh...');
@@ -95,7 +111,8 @@ async function main() {
     const finalVideoId = await uploadToDrive(outputVideoPath, finalVideoName, 'video/mp4', targetFolderId);
     
     // --- FITUR YOUTUBE & SEO ---
-    console.log('📝 Gemini sedang menyusun Judul, Deskripsi SEO, dan Tags YouTube...');
+    console.log('📝 Gemini sedang menyusun Metadata YouTube (Jeda 10 detik dulu)...');
+    await new Promise(r => setTimeout(r, 10000)); // Jeda sebelum panggil AI lagi
     const seoData = await generateYouTubeMetadata(fullScriptText, getNextApiKey());
     
     console.log(`▶️ Mengunggah ke YouTube dengan judul: "${seoData.title}"...`);
@@ -112,7 +129,7 @@ async function main() {
 
   } catch (error) {
     console.error('❌ TERJADI KESALAHAN FATAL:', error);
-    await sendWhatsAppNotification(`❌ *ERROR SISTEM*\n\nTerjadi kegagalan saat memproses video otomatis. Silakan cek log di GitHub Actions.`);
+    await sendWhatsAppNotification(`❌ *ERROR SISTEM*\n\nTerjadi kegagalan memproses video. Pesan: ${error.message.substring(0, 100)}`);
     process.exit(1); 
   }
 }
@@ -144,7 +161,7 @@ async function generateScript(imagePath, style, apiKey) {
   return result.response.text();
 }
 
-// FUNGSI BARU: Mengubah PCM Mentah menjadi File WAV yang valid agar FFmpeg tidak error
+// Mengubah PCM Mentah menjadi File WAV yang valid agar FFmpeg tidak error
 function pcmToWavBuffer(pcmData, sampleRate = 24000) {
   const numChannels = 1;
   const bitsPerSample = 16;
@@ -182,7 +199,6 @@ async function generateAudio(text, voiceName, outputPath, apiKey) {
   if (!res.ok) throw new Error(`429: Gagal generate audio`); 
   const data = await res.json();
   
-  // Perbaikan FFmpeg Error 183: Tambahkan Header WAV ke audio PCM mentah
   const pcmBuffer = Buffer.from(data.candidates[0].content.parts[0].inlineData.data, 'base64');
   const wavBuffer = pcmToWavBuffer(pcmBuffer, 24000);
   fs.writeFileSync(outputPath, wavBuffer);
