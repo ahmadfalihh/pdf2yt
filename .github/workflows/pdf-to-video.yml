@@ -1,6 +1,5 @@
 name: PDF to Video Auto-Renderer
 
-# Trigger (Pemicu) dari frontend HTML
 on:
   workflow_dispatch:
     inputs:
@@ -17,15 +16,28 @@ on:
         required: true
         type: string
       bgmFileId:
-        description: 'ID file BGM di Drive (Opsional)'
+        description: 'ID file BGM di Drive'
+        required: false
+        type: string
+        default: 'NONE'
+      apiKeysList:
+        description: 'Daftar API Key Gemini (Pemisah Koma)'
+        required: true
+        type: string
+      slideDelay:
+        description: 'Jeda Durasi Antar Slide (Detik)'
+        required: true
+        type: string
+      targetFolderId:
+        description: 'ID Folder Tujuan di Drive'
         required: false
         type: string
         default: 'NONE'
 
 jobs:
   build-and-render:
-    runs-on: ubuntu-latest # Menggunakan server Linux gratis dari GitHub
-    timeout-minutes: 60    # Batas waktu maksimal server menyala untuk 1 tugas
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
 
     steps:
       - name: 📥 Ambil Kode Repository
@@ -36,23 +48,18 @@ jobs:
         with:
           node-version: '18'
 
-      - name: 🛠️ Install FFmpeg & Poppler (Engine Video & PDF)
+      - name: 🛠️ Install FFmpeg & Poppler
         run: |
           sudo apt-get update
           sudo apt-get install -y ffmpeg poppler-utils
 
       - name: 📦 Install Library Node.js
-        # Menginstal library yang dibutuhkan oleh worker.js
-        run: npm install @google/generative-ai googleapis fluent-ffmpeg pdf-poppler
+        run: npm install @google/generative-ai googleapis fluent-ffmpeg
 
       - name: 🚀 Jalankan Mesin Utama (worker.js)
-        # Menjalankan worker.js dengan argumen yang dikirim dari HTML
         run: |
-          node worker.js "${{ github.event.inputs.driveFileId }}" "${{ github.event.inputs.style }}" "${{ github.event.inputs.voice }}" "${{ github.event.inputs.bgmFileId }}"
-        
-        # Menyuntikkan Kunci Rahasia (Secrets) agar tidak bocor di publik
+          node worker.js "${{ github.event.inputs.driveFileId }}" "${{ github.event.inputs.style }}" "${{ github.event.inputs.voice }}" "${{ github.event.inputs.bgmFileId }}" "${{ github.event.inputs.apiKeysList }}" "${{ github.event.inputs.slideDelay }}" "${{ github.event.inputs.targetFolderId }}"
         env:
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
           GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
           GOOGLE_REFRESH_TOKEN: ${{ secrets.GOOGLE_REFRESH_TOKEN }}
