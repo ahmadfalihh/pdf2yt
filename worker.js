@@ -1,46 +1,224 @@
-// worker.js
 const { GoogleGenerativeAI } = require('@google/generative-ai');
-const ffmpeg = require('fluent-ffmpeg');
 const { google } = require('googleapis');
+const ffmpeg = require('fluent-ffmpeg');
 const pdfPoppler = require('pdf-poppler');
-// ... (Library lain yang dibutuhkan)
+const fs = require('fs');
+const path = require('path');
+const { promisify } = require('util');
 
-// Mengambil data yang dikirim dari HTML (lewat GitHub Actions)
+// Ambil argumen dari GitHub Actions
 const [driveFileId, style, voice, bgmFileId] = process.argv.slice(2);
 
+// Inisialisasi API Gemini
+const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+
+// Inisialisasi Google OAuth2 (Menggunakan Credentials dari GitHub Secrets)
+const oauth2Client = new google.auth.OAuth2(
+  process.env.GOOGLE_CLIENT_ID,
+  process.env.GOOGLE_CLIENT_SECRET
+);
+oauth2Client.setCredentials({ refresh_token: process.env.GOOGLE_REFRESH_TOKEN });
+const drive = google.drive({ version: 'v3', auth: oauth2Client });
+// const youtube = google.youtube({ version: 'v3', auth: oauth2Client }); // Aktifkan ini nanti jika ingin otomatis upload ke YouTube
+
+const TEMP_DIR = path.join(__dirname, 'temp');
+
 async function main() {
-    console.log(`Memulai proses untuk File ID: ${driveFileId}`);
+  console.log(`🚀 Memulai proses untuk File ID: ${driveFileId}`);
+  if (!fs.existsSync(TEMP_DIR)) fs.mkdirSync(TEMP_DIR);
 
+  try {
     // 1. DOWNLOAD PDF DARI DRIVE
-    // Logika mengambil file dari Google Drive menggunakan 'googleapis'
-    console.log("Mengunduh PDF...");
-    const pdfPath = await downloadFromDrive(driveFileId);
+    console.log('📥 Mengunduh PDF dari Google Drive...');
+    const pdfPath = path.join(TEMP_DIR, 'input.pdf');
+    await downloadFile(driveFileId, pdfPath);
 
-    // 2. EKSTRAK PDF KE GAMBAR (Pengganti Canvas)
-    console.log("Mengekstrak PDF...");
-    const imagePaths = await extractPdf(pdfPath);
+    // 2. EKSTRAK PDF KE GAMBAR
+    console.log('📄 Mengekstrak PDF menjadi gambar-gambar slide...');
+    const imagePaths = await extractPdfToImages(pdfPath, TEMP_DIR);
+    console.log(`Ditemukan ${imagePaths.length} slide.`);
 
-    // 3. PROSES AI (Sama seperti HTML kamu, tapi di server)
-    console.log("Memanggil Gemini AI...");
+    // 3. PROSES AI (TEKS & AUDIO)
+    console.log('🧠 Memulai proses AI (Script & Voice)...');
     const slidesData = [];
-    for (const image of imagePaths) {
-        const text = await getGeminiText(image, style);
-        const audioPath = await getGeminiAudio(text, voice);
-        slidesData.push({ image, audioPath });
+    
+    for (let i = 0; i < imagePaths.length; i++) {
+      console.log(`   Memproses AI untuk slide ${i + 1}/${imagePaths.length}...`);
+      const imgPath = imagePaths[i];
+      
+      // A. Generate Text
+      const script = await generateScript(imgPath, style);
+      
+      // B. Generate Audio (TTS)
+      const audioPath = path.join(TEMP_DIR, `audio_${i}.wav`);
+      await generateAudio(script, voice, audioPath);
+      
+      slidesData.push({ image: imgPath, audio: audioPath });
+      
+      // Jeda untuk menghindari Rate Limit Gemini (15 RPM)
+      if (i < imagePaths.length - 1) await new Promise(r => setTimeout(r, 5000));
     }
 
-    // 4. RENDER VIDEO DENGAN FFMPEG (Pengganti MediaRecorder)
-    console.log("Merender Video...");
-    const outputVideoPath = await renderVideoWithFFmpeg(slidesData, bgmFileId);
+    // 4. RENDER VIDEO DENGAN FFMPEG
+    console.log('🎬 Mulai merender video (Ini mungkin memakan waktu)...');
+    const outputVideoPath = path.join(TEMP_DIR, 'final_video.mp4');
+    await renderVideo(slidesData, outputVideoPath);
 
-    // 5. UPLOAD HASIL KE DRIVE & YOUTUBE
-    console.log("Mengunggah hasil...");
-    await uploadToDriveAndYouTube(outputVideoPath);
+    // 5. UPLOAD HASIL KE GOOGLE DRIVE
+    console.log('☁️ Mengunggah video hasil ke Google Drive...');
+    const finalVideoId = await uploadToDrive(outputVideoPath, 'Hasil_Video_Auto.mp4', 'video/mp4');
+    console.log(`✅ BERHASIL! Video tersimpan di Drive dengan ID: ${finalVideoId}`);
 
-    console.log("PROSES SELESAI!");
+  } catch (error) {
+    console.error('❌ TERJADI KESALAHAN FATAL:', error);
+    process.exit(1); // Gagalkan GitHub Actions jika error
+  }
 }
 
-main().catch(console.error);
+// ==========================================
+// FUNGSI-FUNGSI PENDUKUNG (HELPERS)
+// ==========================================
 
-// (Fungsi-fungsi detail seperti downloadFromDrive, renderVideoWithFFmpeg 
-// akan kita buat di tahap selanjutnya)
+async function downloadFile(fileId, destPath) {
+  const dest = fs.createWriteStream(destPath);
+  const res = await drive.files.get({ fileId: fileId, alt: 'media' }, { responseType: 'stream' });
+  return new Promise((resolve, reject) => {
+    res.data.pipe(dest).on('finish', resolve).on('error', reject);
+  });
+}
+
+async function extractPdfToImages(pdfPath, outputDir) {
+  const opts = {
+    format: 'jpeg',
+    out_dir: outputDir,
+    out_prefix: 'slide',
+    page: null // Ekstrak semua halaman
+  };
+  await pdfPoppler.convert(pdfPath, opts);
+  
+  // Ambil daftar file yang baru diekstrak, urutkan berdasarkan nama
+  const files = fs.readdirSync(outputDir).filter(f => f.startsWith('slide-') && f.endsWith('.jpg'));
+  // Sorting yang benar untuk angka (slide-1, slide-2, ... slide-10)
+  files.sort((a, b) => {
+    const numA = parseInt(a.match(/\d+/)[0]);
+    const numB = parseInt(b.match(/\d+/)[0]);
+    return numA - numB;
+  });
+  
+  return files.map(f => path.join(outputDir, f));
+}
+
+async function generateScript(imagePath, style) {
+  const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
+  const imageData = fs.readFileSync(imagePath).toString("base64");
+  const prompt = `Anda narator profesional. Jelaskan materi di GAMBAR SLIDE ini.\nSyarat:\n1. Jelaskan isi gambar/teks secara langsung.\n2. Gaya: ${style}.\n3. Panjang WAJIB 70-100 kata.\n4. Bahasa Indonesia natural.`;
+  
+  const result = await model.generateContent([
+    prompt,
+    { inlineData: { data: imageData, mimeType: "image/jpeg" } }
+  ]);
+  return result.response.text();
+}
+
+async function generateAudio(text, voiceName, outputPath) {
+  // Menggunakan endpoint REST langsung karena SDK Node.js untuk TTS Preview terkadang belum stabil
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-tts:generateContent?key=${process.env.GEMINI_API_KEY}`;
+  
+  const payload = {
+    contents: [{ parts: [{ text: text }] }],
+    generationConfig: {
+      responseModalities: ["AUDIO"],
+      speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: voiceName } } }
+    },
+    model: "gemini-2.5-flash-preview-tts"
+  };
+
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  });
+
+  if (!res.ok) throw new Error(`Gagal generate audio: ${await res.text()}`);
+  
+  const data = await res.json();
+  const base64Audio = data.candidates[0].content.parts[0].inlineData.data;
+  
+  // Decode Base64 PCM ke Buffer dan simpan (Secara teknis Gemini mengembalikan WAV berbalut base64)
+  const audioBuffer = Buffer.from(base64Audio, 'base64');
+  fs.writeFileSync(outputPath, audioBuffer);
+}
+
+async function renderVideo(slidesData, outputPath) {
+  return new Promise((resolve, reject) => {
+    // Membuat file teks list untuk input FFmpeg (Concat demuxer)
+    // Format FFmpeg Concat butuh file berisi daftar input gambar & durasi
+    const listPath = path.join(TEMP_DIR, 'concat_list.txt');
+    let listContent = '';
+    
+    // Karena kita butuh durasi presisi, kita gabungkan audio dulu, 
+    // tapi cara paling stabil di Node.js adalah membuat klip per slide lalu digabung.
+    
+    // Trik Cepat & Stabil: Render per slide menjadi mp4 kecil, lalu gabungkan.
+    renderSlidesSequentially(slidesData, outputPath).then(resolve).catch(reject);
+  });
+}
+
+async function renderSlidesSequentially(slides, finalOutput) {
+  const clipPaths = [];
+  
+  for (let i = 0; i < slides.length; i++) {
+    const slide = slides[i];
+    const clipPath = path.join(TEMP_DIR, `clip_${i}.mp4`);
+    console.log(`   Merender klip ${i+1}/${slides.length}...`);
+    
+    await new Promise((resolve, reject) => {
+      ffmpeg()
+        .input(slide.image)
+        .loop() // Ulangi gambar terus
+        .input(slide.audio)
+        .outputOptions([
+          '-c:v libx264',
+          '-tune stillimage',
+          '-c:a aac',
+          '-b:a 192k',
+          '-pix_fmt yuv420p',
+          '-shortest' // Potong video saat audio selesai
+        ])
+        .save(clipPath)
+        .on('end', resolve)
+        .on('error', reject);
+    });
+    clipPaths.push(clipPath);
+  }
+  
+  // Gabungkan (Concat) semua klip
+  console.log('   Menggabungkan semua klip menjadi satu video utuh...');
+  const concatListPath = path.join(TEMP_DIR, 'concat.txt');
+  fs.writeFileSync(concatListPath, clipPaths.map(p => `file '${p}'`).join('\n'));
+  
+  await new Promise((resolve, reject) => {
+    ffmpeg()
+      .input(concatListPath)
+      .inputOptions(['-f concat', '-safe 0'])
+      .outputOptions('-c copy') // Salin codec tanpa render ulang (sangat cepat)
+      .save(finalOutput)
+      .on('end', resolve)
+      .on('error', reject);
+  });
+}
+
+async function uploadToDrive(filePath, fileName, mimeType) {
+  const fileMetadata = { name: fileName };
+  const media = { mimeType: mimeType, body: fs.createReadStream(filePath) };
+  
+  const file = await drive.files.create({
+    resource: fileMetadata,
+    media: media,
+    fields: 'id'
+  });
+  return file.data.id;
+}
+
+// Jalankan program utama
+main();
