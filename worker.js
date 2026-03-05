@@ -1,10 +1,9 @@
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 const { google } = require('googleapis');
 const ffmpeg = require('fluent-ffmpeg');
-const pdfPoppler = require('pdf-poppler');
 const fs = require('fs');
 const path = require('path');
-const { promisify } = require('util');
+const { execSync } = require('child_process'); // <-- Kita gunakan perintah native mesin Linux
 
 // Ambil argumen dari GitHub Actions
 const [driveFileId, style, voice, bgmFileId] = process.argv.slice(2);
@@ -12,14 +11,13 @@ const [driveFileId, style, voice, bgmFileId] = process.argv.slice(2);
 // Inisialisasi API Gemini
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
-// Inisialisasi Google OAuth2 (Menggunakan Credentials dari GitHub Secrets)
+// Inisialisasi Google OAuth2
 const oauth2Client = new google.auth.OAuth2(
   process.env.GOOGLE_CLIENT_ID,
   process.env.GOOGLE_CLIENT_SECRET
 );
 oauth2Client.setCredentials({ refresh_token: process.env.GOOGLE_REFRESH_TOKEN });
 const drive = google.drive({ version: 'v3', auth: oauth2Client });
-// const youtube = google.youtube({ version: 'v3', auth: oauth2Client }); // Aktifkan ini nanti jika ingin otomatis upload ke YouTube
 
 const TEMP_DIR = path.join(__dirname, 'temp');
 
@@ -33,7 +31,7 @@ async function main() {
     const pdfPath = path.join(TEMP_DIR, 'input.pdf');
     await downloadFile(driveFileId, pdfPath);
 
-    // 2. EKSTRAK PDF KE GAMBAR
+    // 2. EKSTRAK PDF KE GAMBAR (MENGGUNAKAN NATIVE LINUX COMMAND)
     console.log('📄 Mengekstrak PDF menjadi gambar-gambar slide...');
     const imagePaths = await extractPdfToImages(pdfPath, TEMP_DIR);
     console.log(`Ditemukan ${imagePaths.length} slide.`);
@@ -46,16 +44,13 @@ async function main() {
       console.log(`   Memproses AI untuk slide ${i + 1}/${imagePaths.length}...`);
       const imgPath = imagePaths[i];
       
-      // A. Generate Text
       const script = await generateScript(imgPath, style);
       
-      // B. Generate Audio (TTS)
       const audioPath = path.join(TEMP_DIR, `audio_${i}.wav`);
       await generateAudio(script, voice, audioPath);
       
       slidesData.push({ image: imgPath, audio: audioPath });
       
-      // Jeda untuk menghindari Rate Limit Gemini (15 RPM)
       if (i < imagePaths.length - 1) await new Promise(r => setTimeout(r, 5000));
     }
 
@@ -71,7 +66,7 @@ async function main() {
 
   } catch (error) {
     console.error('❌ TERJADI KESALAHAN FATAL:', error);
-    process.exit(1); // Gagalkan GitHub Actions jika error
+    process.exit(1); 
   }
 }
 
@@ -87,18 +82,14 @@ async function downloadFile(fileId, destPath) {
   });
 }
 
+// FUNGSI INI YANG KITA ROMBAK TOTAL!
 async function extractPdfToImages(pdfPath, outputDir) {
-  const opts = {
-    format: 'jpeg',
-    out_dir: outputDir,
-    out_prefix: 'slide',
-    page: null // Ekstrak semua halaman
-  };
-  await pdfPoppler.convert(pdfPath, opts);
+  const prefixPath = path.join(outputDir, 'slide');
   
-  // Ambil daftar file yang baru diekstrak, urutkan berdasarkan nama
+  // Memerintahkan server Linux langsung untuk memotong PDF ke JPEG resolusi tinggi (300 DPI)
+  execSync(`pdftoppm -jpeg -r 300 "${pdfPath}" "${prefixPath}"`);
+  
   const files = fs.readdirSync(outputDir).filter(f => f.startsWith('slide-') && f.endsWith('.jpg'));
-  // Sorting yang benar untuk angka (slide-1, slide-2, ... slide-10)
   files.sort((a, b) => {
     const numA = parseInt(a.match(/\d+/)[0]);
     const numB = parseInt(b.match(/\d+/)[0]);
@@ -121,7 +112,6 @@ async function generateScript(imagePath, style) {
 }
 
 async function generateAudio(text, voiceName, outputPath) {
-  // Menggunakan endpoint REST langsung karena SDK Node.js untuk TTS Preview terkadang belum stabil
   const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-tts:generateContent?key=${process.env.GEMINI_API_KEY}`;
   
   const payload = {
@@ -143,23 +133,12 @@ async function generateAudio(text, voiceName, outputPath) {
   
   const data = await res.json();
   const base64Audio = data.candidates[0].content.parts[0].inlineData.data;
-  
-  // Decode Base64 PCM ke Buffer dan simpan (Secara teknis Gemini mengembalikan WAV berbalut base64)
   const audioBuffer = Buffer.from(base64Audio, 'base64');
   fs.writeFileSync(outputPath, audioBuffer);
 }
 
 async function renderVideo(slidesData, outputPath) {
   return new Promise((resolve, reject) => {
-    // Membuat file teks list untuk input FFmpeg (Concat demuxer)
-    // Format FFmpeg Concat butuh file berisi daftar input gambar & durasi
-    const listPath = path.join(TEMP_DIR, 'concat_list.txt');
-    let listContent = '';
-    
-    // Karena kita butuh durasi presisi, kita gabungkan audio dulu, 
-    // tapi cara paling stabil di Node.js adalah membuat klip per slide lalu digabung.
-    
-    // Trik Cepat & Stabil: Render per slide menjadi mp4 kecil, lalu gabungkan.
     renderSlidesSequentially(slidesData, outputPath).then(resolve).catch(reject);
   });
 }
@@ -175,7 +154,7 @@ async function renderSlidesSequentially(slides, finalOutput) {
     await new Promise((resolve, reject) => {
       ffmpeg()
         .input(slide.image)
-        .loop() // Ulangi gambar terus
+        .loop() 
         .input(slide.audio)
         .outputOptions([
           '-c:v libx264',
@@ -183,7 +162,7 @@ async function renderSlidesSequentially(slides, finalOutput) {
           '-c:a aac',
           '-b:a 192k',
           '-pix_fmt yuv420p',
-          '-shortest' // Potong video saat audio selesai
+          '-shortest' 
         ])
         .save(clipPath)
         .on('end', resolve)
@@ -192,7 +171,6 @@ async function renderSlidesSequentially(slides, finalOutput) {
     clipPaths.push(clipPath);
   }
   
-  // Gabungkan (Concat) semua klip
   console.log('   Menggabungkan semua klip menjadi satu video utuh...');
   const concatListPath = path.join(TEMP_DIR, 'concat.txt');
   fs.writeFileSync(concatListPath, clipPaths.map(p => `file '${p}'`).join('\n'));
@@ -201,7 +179,7 @@ async function renderSlidesSequentially(slides, finalOutput) {
     ffmpeg()
       .input(concatListPath)
       .inputOptions(['-f concat', '-safe 0'])
-      .outputOptions('-c copy') // Salin codec tanpa render ulang (sangat cepat)
+      .outputOptions('-c copy')
       .save(finalOutput)
       .on('end', resolve)
       .on('error', reject);
@@ -220,5 +198,4 @@ async function uploadToDrive(filePath, fileName, mimeType) {
   return file.data.id;
 }
 
-// Jalankan program utama
 main();
