@@ -1,0 +1,330 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PDF-to-Video (Frontend Trigger)</title>
+  
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://accounts.google.com/gsi/client" async defer></script>
+
+  <style>
+    .custom-scrollbar::-webkit-scrollbar { width: 6px; height: 6px; }
+    .custom-scrollbar::-webkit-scrollbar-thumb { background: #334155; border-radius: 4px; }
+    .loader { border: 3px solid #334155; border-bottom-color: #6366f1; border-radius: 50%; display: inline-block; box-sizing: border-box; animation: rotation 1s linear infinite; }
+    @keyframes rotation { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+  </style>
+</head>
+<body class="bg-slate-950 text-slate-200 font-sans h-screen flex flex-col overflow-hidden">
+  
+  <div id="root" class="h-full flex flex-col"></div>
+
+  <script type="text/babel">
+    const { useState, useEffect } = React;
+
+    // --- ICONS (Diringkas untuk keterbacaan) ---
+    const Icons = {
+      Settings: (p) => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...p}><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06-.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>,
+      Check: (p) => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...p}><polyline points="20 6 9 17 4 12"></polyline></svg>,
+      Cloud: (p) => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...p}><path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z"></path></svg>,
+      X: (p) => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...p}><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>,
+      FileUp: (p) => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...p}><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"></path><polyline points="14 2 14 8 20 8"></polyline><polyline points="12 12 12 18"></polyline><polyline points="9 15 12 12 15 15"></polyline></svg>,
+      Play: (p) => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...p}><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>,
+      Trash: (p) => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...p}><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>,
+      Server: (p) => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...p}><rect x="2" y="2" width="20" height="8" rx="2" ry="2"></rect><rect x="2" y="14" width="20" height="8" rx="2" ry="2"></rect><line x1="6" y1="6" x2="6.01" y2="6"></line><line x1="6" y1="18" x2="6.01" y2="18"></line></svg>
+    };
+
+    const NARRATION_STYLES = [
+      "Profesional & Formal", "Santai & Kasual", "Storytelling (Mendongeng)", "Humoris & Menyenangkan"
+    ];
+
+    const NARRATOR_VOICES = [
+      { id: "Aoede", name: "Aoede (Netral/Wanita)" }, { id: "Zephyr", name: "Zephyr (Tegas/Pria)" },
+      { id: "Puck", name: "Puck (Ceria/Pria)" }, { id: "Kore", name: "Kore (Lembut/Wanita)" }
+    ];
+
+    function App() {
+      const [showSettings, setShowSettings] = useState(false);
+      const [queue, setQueue] = useState([]); 
+      const [isProcessingBatch, setIsProcessingBatch] = useState(false);
+
+      const [googleToken, setGoogleToken] = useState(null);
+      const [bgmFile, setBgmFile] = useState(null);
+
+      const [appSettings, setAppSettings] = useState(() => {
+        const saved = localStorage.getItem('narratorSettingsV7');
+        const parsed = saved ? JSON.parse(saved) : {};
+        return { 
+          style: parsed.style || NARRATION_STYLES[0], 
+          voice: parsed.voice || NARRATOR_VOICES[0].id,
+          googleClientId: parsed.googleClientId || '',
+          githubToken: parsed.githubToken || '',
+          githubRepo: parsed.githubRepo || 'username/nama-repo' // Format: owner/repo
+        };
+      });
+
+      useEffect(() => {
+        localStorage.setItem('narratorSettingsV7', JSON.stringify(appSettings));
+      }, [appSettings]);
+
+      const handleConnectDrive = () => {
+        if (!window.google) return alert("Script Google Identity belum dimuat.");
+        if (!appSettings.googleClientId) { setShowSettings(true); return alert("Masukkan Google Client ID dulu di menu Pengaturan."); }
+        
+        const client = window.google.accounts.oauth2.initTokenClient({
+          client_id: appSettings.googleClientId.trim(),
+          scope: 'https://www.googleapis.com/auth/drive',
+          prompt: 'consent select_account',
+          callback: (res) => {
+            if (res.access_token) setGoogleToken(res.access_token);
+          },
+        });
+        client.requestAccessToken();
+      };
+
+      const handleFileSelection = (filesList) => {
+        const validFiles = Array.from(filesList).filter(f => f.type === 'application/pdf');
+        if (validFiles.length === 0) return alert("Mohon unggah file PDF.");
+        
+        const newQueueItems = validFiles.map(f => ({
+          id: Math.random().toString(36).substring(7),
+          file: f,
+          status: 'PENDING', 
+          progress: 'Menunggu antrean...'
+        }));
+        setQueue([...queue, ...newQueueItems]);
+      };
+
+      const updateItem = (index, updates) => {
+        setQueue(prev => {
+          const newQ = [...prev];
+          newQ[index] = { ...newQ[index], ...updates };
+          return newQ;
+        });
+      };
+
+      // Fungsi untuk upload file MENTAH ke Google Drive (Resumable Upload)
+      const uploadFileToDrive = async (file, token, mimeType) => {
+        const metadata = { name: file.name, mimeType: mimeType };
+        
+        const initRes = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable', {
+          method: 'POST',
+          headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
+          body: JSON.stringify(metadata)
+        });
+
+        if (!initRes.ok) throw new Error("Gagal inisiasi upload Drive.");
+        const uploadUrl = initRes.headers.get('Location');
+
+        const uploadRes = await fetch(uploadUrl, { method: 'PUT', body: file });
+        if (!uploadRes.ok) throw new Error("Gagal mengunggah file.");
+        
+        const data = await uploadRes.json();
+        return data.id; // Mengembalikan ID file di Drive
+      };
+
+      // Fungsi untuk menembak API GitHub Actions
+      const triggerGitHubAction = async (pdfFileId, bgmFileId) => {
+        const url = `https://api.github.com/repos/${appSettings.githubRepo}/actions/workflows/pdf-to-video.yml/dispatches`;
+        
+        const res = await fetch(url, {
+          method: 'POST',
+          headers: {
+            'Accept': 'application/vnd.github.v3+json',
+            'Authorization': `Bearer ${appSettings.githubToken.trim()}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            ref: 'main', // Branch utama repository
+            inputs: {
+              driveFileId: pdfFileId,
+              style: appSettings.style,
+              voice: appSettings.voice,
+              bgmFileId: bgmFileId || "NONE"
+            }
+          })
+        });
+
+        if (!res.ok) {
+            const errText = await res.text();
+            throw new Error(`Gagal memicu GitHub: ${res.status} - ${errText}`);
+        }
+      };
+
+      const startBatchProcess = async () => {
+        if (!googleToken) return alert("Harap hubungkan Google Drive terlebih dahulu!");
+        if (!appSettings.githubToken || !appSettings.githubRepo) {
+          setShowSettings(true);
+          return alert("Wajib mengisi GitHub Token dan Repository di Pengaturan.");
+        }
+
+        setIsProcessingBatch(true);
+
+        for (let i = 0; i < queue.length; i++) {
+          if (queue[i].status === 'SENT_TO_SERVER' || queue[i].status === 'ERROR') continue;
+          
+          try {
+            // 1. Upload PDF ke Drive
+            updateItem(i, { status: 'UPLOADING', progress: 'Mengunggah PDF ke Google Drive...' });
+            const pdfId = await uploadFileToDrive(queue[i].file, googleToken, 'application/pdf');
+
+            // 2. Upload BGM ke Drive (Jika ada)
+            let bgmId = null;
+            if (bgmFile) {
+                updateItem(i, { progress: 'Mengunggah Musik Latar (BGM)...' });
+                bgmId = await uploadFileToDrive(bgmFile, googleToken, bgmFile.type);
+            }
+
+            // 3. Trigger GitHub Actions
+            updateItem(i, { status: 'TRIGGERING', progress: 'Mengirim sinyal ke Server GitHub...' });
+            await triggerGitHubAction(pdfId, bgmId);
+
+            updateItem(i, { status: 'SENT_TO_SERVER', progress: 'Sukses! Proses berjalan di latar belakang.' });
+
+          } catch (error) {
+            console.error(error);
+            updateItem(i, { status: 'ERROR', progress: 'Error: ' + error.message });
+          }
+        }
+        
+        setIsProcessingBatch(false);
+        alert("Selesai! Anda kini bisa menutup browser ini. Server GitHub sedang mengerjakan videonya.");
+      };
+
+      return (
+        <div className="h-full flex flex-col relative">
+          
+          <header className="bg-slate-900 border-b border-slate-800 p-4 flex items-center justify-between shadow-sm z-10 shrink-0">
+            <div className="flex items-center gap-3">
+              <div className="bg-indigo-600 p-2 rounded-lg"><Icons.Server className="w-5 h-5 text-white" /></div>
+              <div>
+                <h1 className="text-xl font-bold text-white tracking-tight">PDF-to-Video <span className="text-indigo-400">Server Trigger</span></h1>
+                <p className="text-xs text-slate-400">Hubungkan Drive & Kirim ke GitHub</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-3">
+              {googleToken ? (
+                <button onClick={() => setGoogleToken(null)} className="flex items-center gap-1 bg-emerald-900/30 text-emerald-400 px-3 py-1.5 rounded-md font-medium text-xs border border-emerald-800/50">
+                  <Icons.Check className="w-3 h-3" /> Drive Terhubung
+                </button>
+              ) : (
+                <button onClick={handleConnectDrive} className="flex items-center gap-2 bg-slate-800 hover:bg-slate-700 text-slate-300 px-3 py-2 rounded-md font-medium text-xs border border-slate-700">
+                  <Icons.Cloud className="w-4 h-4" /> Login Drive
+                </button>
+              )}
+              <div className="w-px h-6 bg-slate-800 mx-1"></div>
+              <button onClick={() => setShowSettings(true)} className="text-slate-400 hover:text-white p-2"><Icons.Settings className="w-5 h-5" /></button>
+            </div>
+          </header>
+
+          <main className="flex-1 flex flex-col md:flex-row overflow-hidden bg-slate-950">
+            
+            {/* LEFT PANEL: UPLOAD & QUEUE */}
+            <div className="w-full md:w-1/2 border-r border-slate-800 flex flex-col bg-slate-900 shrink-0">
+              <div className="p-4 border-b border-slate-800">
+                <label className="w-full bg-indigo-600 hover:bg-indigo-500 text-white py-3 rounded-lg font-medium cursor-pointer flex items-center justify-center gap-2" style={{opacity: isProcessingBatch ? 0.5 : 1, pointerEvents: isProcessingBatch ? 'none' : 'auto'}}>
+                  <Icons.FileUp className="w-5 h-5" /> Pilih File PDF
+                  <input type="file" accept="application/pdf" multiple className="hidden" onChange={(e) => handleFileSelection(e.target.files)} disabled={isProcessingBatch}/>
+                </label>
+              </div>
+
+              <div className="flex-1 overflow-y-auto custom-scrollbar p-3 space-y-2">
+                {queue.map((item, idx) => (
+                  <div key={item.id} className="p-3 rounded-lg border bg-slate-800 border-slate-700">
+                    <div className="flex justify-between items-start mb-1">
+                      <h4 className="text-sm font-semibold text-white truncate pr-2">{item.file.name}</h4>
+                      {!isProcessingBatch && (
+                         <button onClick={() => setQueue(queue.filter(q => q.id !== item.id))} className="text-slate-500 hover:text-red-400"><Icons.Trash className="w-4 h-4"/></button>
+                      )}
+                    </div>
+                    <div className="flex justify-between items-center text-xs mt-2">
+                      <span className={`px-2 py-0.5 rounded font-medium ${
+                        item.status === 'SENT_TO_SERVER' ? 'bg-emerald-500/20 text-emerald-400' : 
+                        item.status === 'ERROR' ? 'bg-red-500/20 text-red-400' : 
+                        item.status !== 'PENDING' ? 'bg-amber-500/20 text-amber-400' : 'bg-slate-700 text-slate-400'
+                      }`}>
+                        {item.status}
+                      </span>
+                    </div>
+                    {item.progress && <p className="text-[10px] text-indigo-300 mt-2 truncate">{item.progress}</p>}
+                  </div>
+                ))}
+              </div>
+
+              {queue.length > 0 && (
+                <div className="p-4 border-t border-slate-800 bg-slate-950">
+                   <button onClick={startBatchProcess} disabled={isProcessingBatch} className="w-full bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-700 text-white font-bold py-3 rounded-lg flex justify-center items-center gap-2">
+                     {isProcessingBatch ? <><span className="loader w-4 h-4 border-2"></span> Mengirim ke Server...</> : <><Icons.Play className="w-5 h-5"/> Kirim Tugas ke GitHub</>}
+                   </button>
+                </div>
+              )}
+            </div>
+
+            {/* RIGHT PANEL: SETTINGS */}
+            <div className="flex-1 flex flex-col p-8 overflow-y-auto bg-slate-950">
+               <h2 className="text-2xl font-bold text-white mb-6">⚙️ Konfigurasi Tugas</h2>
+               <div className="space-y-6 max-w-md">
+                  <div>
+                    <label className="block text-sm font-medium text-slate-300 mb-2">Gaya Bahasa Cerita</label>
+                    <select value={appSettings.style} onChange={(e) => setAppSettings({...appSettings, style: e.target.value})} className="w-full bg-slate-900 border border-slate-700 rounded-lg px-4 py-3 text-white text-sm focus:border-indigo-500">
+                      {NARRATION_STYLES.map(s => <option key={s} value={s}>{s}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-300 mb-2">Pilihan Suara (Voice)</label>
+                    <select value={appSettings.voice} onChange={(e) => setAppSettings({...appSettings, voice: e.target.value})} className="w-full bg-slate-900 border border-slate-700 rounded-lg px-4 py-3 text-white text-sm focus:border-indigo-500">
+                      {NARRATOR_VOICES.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
+                    </select>
+                  </div>
+                  <div className="pt-4 border-t border-slate-800">
+                     <label className="block text-sm font-medium text-slate-300 mb-2">Unggah Musik Latar (Opsional)</label>
+                     <input type="file" accept="audio/*" onChange={(e) => setBgmFile(e.target.files[0])} className="text-sm text-slate-400 file:mr-4 file:py-2 file:px-4 file:rounded file:border-0 file:text-sm file:bg-indigo-900/50 file:text-indigo-300 cursor-pointer"/>
+                  </div>
+               </div>
+            </div>
+
+          </main>
+
+          {/* MODAL SETTINGS (UNTUK TOKEN GITHUB & GOOGLE) */}
+          {showSettings && (
+            <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
+              <div className="bg-slate-900 border border-slate-700 rounded-xl w-full max-w-md p-6">
+                <div className="flex justify-between items-center mb-6">
+                  <h2 className="font-semibold text-white">Integrasi API</h2>
+                  <button onClick={()=>setShowSettings(false)} className="text-slate-400 hover:text-white"><Icons.X className="w-5 h-5"/></button>
+                </div>
+                
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-xs text-slate-400 mb-1">Google OAuth Client ID</label>
+                    <input type="text" value={appSettings.googleClientId} onChange={e=>setAppSettings({...appSettings, googleClientId: e.target.value})} className="w-full bg-slate-950 border border-slate-700 rounded p-2 text-sm text-white"/>
+                  </div>
+                  <div className="pt-4 border-t border-slate-800">
+                    <label className="block text-xs text-slate-400 mb-1">GitHub Personal Access Token</label>
+                    <input type="password" value={appSettings.githubToken} onChange={e=>setAppSettings({...appSettings, githubToken: e.target.value})} placeholder="ghp_xxxx..." className="w-full bg-slate-950 border border-slate-700 rounded p-2 text-sm text-white"/>
+                  </div>
+                  <div>
+                    <label className="block text-xs text-slate-400 mb-1">GitHub Repository (Format: owner/repo)</label>
+                    <input type="text" value={appSettings.githubRepo} onChange={e=>setAppSettings({...appSettings, githubRepo: e.target.value})} placeholder="username/nama-repo" className="w-full bg-slate-950 border border-slate-700 rounded p-2 text-sm text-white"/>
+                  </div>
+                </div>
+
+                <div className="mt-6 flex justify-end">
+                  <button onClick={()=>setShowSettings(false)} className="bg-indigo-600 hover:bg-indigo-500 text-white px-6 py-2 rounded-lg text-sm font-medium">Simpan</button>
+                </div>
+              </div>
+            </div>
+          )}
+
+        </div>
+      );
+    }
+
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<App />);
+  </script>
+</body>
+</html>
