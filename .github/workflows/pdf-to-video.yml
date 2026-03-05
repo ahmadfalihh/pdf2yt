@@ -1,0 +1,58 @@
+name: PDF to Video Auto-Renderer
+
+# Trigger (Pemicu) dari frontend HTML
+on:
+  workflow_dispatch:
+    inputs:
+      driveFileId:
+        description: 'ID file PDF di Google Drive'
+        required: true
+        type: string
+      style:
+        description: 'Gaya Narasi'
+        required: true
+        type: string
+      voice:
+        description: 'ID Suara Gemini'
+        required: true
+        type: string
+      bgmFileId:
+        description: 'ID file BGM di Drive (Opsional)'
+        required: false
+        type: string
+        default: 'NONE'
+
+jobs:
+  build-and-render:
+    runs-on: ubuntu-latest # Menggunakan server Linux gratis dari GitHub
+    timeout-minutes: 60    # Batas waktu maksimal server menyala untuk 1 tugas
+
+    steps:
+      - name: 📥 Ambil Kode Repository
+        uses: actions/checkout@v4
+
+      - name: ⚙️ Siapkan Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+
+      - name: 🛠️ Install FFmpeg & Poppler (Engine Video & PDF)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg poppler-utils
+
+      - name: 📦 Install Library Node.js
+        # Menginstal library yang dibutuhkan oleh worker.js
+        run: npm install @google/generative-ai googleapis fluent-ffmpeg pdf-poppler
+
+      - name: 🚀 Jalankan Mesin Utama (worker.js)
+        # Menjalankan worker.js dengan argumen yang dikirim dari HTML
+        run: |
+          node worker.js "${{ github.event.inputs.driveFileId }}" "${{ github.event.inputs.style }}" "${{ github.event.inputs.voice }}" "${{ github.event.inputs.bgmFileId }}"
+        
+        # Menyuntikkan Kunci Rahasia (Secrets) agar tidak bocor di publik
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+          GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+          GOOGLE_REFRESH_TOKEN: ${{ secrets.GOOGLE_REFRESH_TOKEN }}
