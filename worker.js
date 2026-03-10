@@ -82,15 +82,17 @@ async function main() {
           success = true;
 
         } catch (error) {
-          if (error.message.includes('429') || error.message.includes('RESOURCE_EXHAUSTED')) {
+          const errMsg = error.message || "";
+          if (errMsg.includes('429') || errMsg.includes('RESOURCE_EXHAUSTED') || errMsg.includes('Too Many Requests') || errMsg.includes('rate limit')) {
             // Waktu tunggu bertingkat: 30s, 60s, 90s, 120s, 150s
             const waitTime = 30000 * (retries + 1);
-            console.log(`   ⚠️ Limit Kuota (429). Rotasi Kunci & Istirahat panjang ${waitTime / 1000} detik (Coba ${retries + 1}/${maxRetries})...`);
+            console.log(`   ⚠️ Limit Kuota Gagal (429). Pesan: ${errMsg.substring(0, 50)}... Rotasi Kunci & Istirahat panjang ${waitTime / 1000} detik (Coba ${retries + 1}/${maxRetries})...`);
 
             usedKey = getNextApiKey();
             await new Promise(r => setTimeout(r, waitTime));
             retries++;
           } else {
+            console.error(`   ❌ Error Gagal Generate AI: `, errMsg);
             throw error; // Lempar jika errornya selain urusan limit
           }
         }
