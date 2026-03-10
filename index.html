@@ -95,7 +95,7 @@
       const [isLoadingModels, setIsLoadingModels] = useState(false);
 
       const [appSettings, setAppSettings] = useState(() => {
-        const saved = localStorage.getItem('narratorSettingsV10');
+        const saved = localStorage.getItem('narratorSettingsV11');
         const parsed = saved ? JSON.parse(saved) : {};
         return {
           style: parsed.style || NARRATION_STYLES[0],
@@ -112,7 +112,7 @@
       });
 
       useEffect(() => {
-        localStorage.setItem('narratorSettingsV10', JSON.stringify(appSettings));
+        localStorage.setItem('narratorSettingsV11', JSON.stringify(appSettings));
       }, [appSettings]);
 
       // --- LOGIKA MULTI API KEY ---
