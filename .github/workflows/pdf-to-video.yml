@@ -1,0 +1,75 @@
+name: PDF to Video Auto-Renderer
+
+on:
+  workflow_dispatch:
+    inputs:
+      driveFileId:
+        description: 'ID file PDF di Google Drive'
+        required: true
+        type: string
+      style:
+        description: 'Gaya Narasi'
+        required: true
+        type: string
+      voice:
+        description: 'ID Suara Gemini'
+        required: true
+        type: string
+      bgmFileId:
+        description: 'ID file BGM di Drive'
+        required: false
+        type: string
+        default: 'NONE'
+      apiKeysList:
+        description: 'Daftar API Key Gemini (Pemisah Koma)'
+        required: true
+        type: string
+      slideDelay:
+        description: 'Jeda Durasi Antar Slide (Detik)'
+        required: true
+        type: string
+      targetFolderId:
+        description: 'ID Folder Tujuan di Drive'
+        required: false
+        type: string
+        default: 'NONE'
+      textModel:
+        description: 'Model Teks LiteLLM'
+        required: false
+        type: string
+        default: ''
+      audioModel:
+        description: 'Model Audio LiteLLM'
+        required: false
+        type: string
+        default: ''
+
+jobs:
+  build-and-render:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: 📥 Ambil Kode Repository
+        uses: actions/checkout@v4
+
+      - name: ⚙️ Siapkan Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+
+      - name: 🛠️ Install FFmpeg & Poppler
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg poppler-utils
+
+      - name: 📦 Install Library Node.js
+        run: npm install @google/generative-ai googleapis fluent-ffmpeg
+
+      - name: 🚀 Jalankan Mesin Utama (worker.js)
+        run: |
+          node worker.js "${{ github.event.inputs.driveFileId }}" "${{ github.event.inputs.style }}" "${{ github.event.inputs.voice }}" "${{ github.event.inputs.bgmFileId }}" "${{ github.event.inputs.apiKeysList }}" "${{ github.event.inputs.slideDelay }}" "${{ github.event.inputs.targetFolderId }}" "${{ github.event.inputs.textModel }}" "${{ github.event.inputs.audioModel }}"
+        env:
+          GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+          GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+          GOOGLE_REFRESH_TOKEN: ${{ secrets.GOOGLE_REFRESH_TOKEN }}
