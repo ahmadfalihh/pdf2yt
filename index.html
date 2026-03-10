@@ -154,11 +154,16 @@
           if (!res.ok) throw new Error("Gagal mengambil daftar model");
           const data = await res.json();
           const allModels = data.data.map(m => m.id);
-          
-          // Klasifikasi sederhana berdasarkan nama ID model
+
+          // Klasifikasi canggih: singkirkan model khusus gambar 
           const audioKeywords = ['tts', 'speech', 'audio', 'voice', 'elevenlabs'];
+          const imageKeywords = ['image', 'imagen', 'dall-e', 'dalle', 'midjourney'];
+
           const audioModels = allModels.filter(m => audioKeywords.some(kw => m.toLowerCase().includes(kw)));
-          const textModels = allModels.filter(m => !audioModels.includes(m));
+          const textModels = allModels.filter(m =>
+            !audioModels.includes(m) &&
+            !imageKeywords.some(kw => m.toLowerCase().includes(kw))
+          );
 
           setAvailableModels(textModels);
           setAvailableAudioModels(audioModels);
@@ -389,8 +394,8 @@
                     </div>
                     <div className="flex justify-between items-center text-xs mt-2">
                       <span className={`px-2 py-0.5 rounded font-medium ${item.status === 'SENT_TO_SERVER' ? 'bg-emerald-500/20 text-emerald-400' :
-                          item.status === 'ERROR' ? 'bg-red-500/20 text-red-400' :
-                            item.status !== 'PENDING' ? 'bg-amber-500/20 text-amber-400' : 'bg-slate-700 text-slate-400'
+                        item.status === 'ERROR' ? 'bg-red-500/20 text-red-400' :
+                          item.status !== 'PENDING' ? 'bg-amber-500/20 text-amber-400' : 'bg-slate-700 text-slate-400'
                         }`}>
                         {item.status}
                       </span>
