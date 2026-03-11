@@ -64,8 +64,6 @@
       const [googleToken, setGoogleToken] = useState(null);
       const [driveFolders, setDriveFolders] = useState([]); // State untuk menyimpan daftar folder
       const [bgmFile, setBgmFile] = useState(null);
-      const [availableModels, setAvailableModels] = useState([]);
-      const [isLoadingModels, setIsLoadingModels] = useState(false);
 
       const [appSettings, setAppSettings] = useState(() => {
         const saved = localStorage.getItem('narratorSettingsV9');
@@ -78,8 +76,7 @@
           githubRepo: parsed.githubRepo || 'username/nama-repo',
           apiKeys: parsed.apiKeys || [''], 
           slideDelay: parsed.slideDelay || 15,
-          driveFolderId: parsed.driveFolderId || '', // ID Folder pilihan pengguna
-          textModel: parsed.textModel || ''
+          driveFolderId: parsed.driveFolderId || '' // ID Folder pilihan pengguna
         };
       });
 
@@ -111,30 +108,6 @@
             if (data.files) setDriveFolders(data.files);
           }
         } catch (e) { console.error("Gagal mengambil folder:", e); }
-      };
-
-      const fetchModels = async () => {
-        const apiKey = appSettings.apiKeys[0];
-        if (!apiKey || apiKey.trim() === '') {
-          return alert("Masukkan API Key pertama di Pengaturan Lanjutan sebelum menarik model.");
-        }
-        setIsLoadingModels(true);
-        try {
-          const res = await fetch("https://litellm.koboi2026.biz.id/v1/models", {
-            headers: { "Authorization": `Bearer ${apiKey}` }
-          });
-          if (!res.ok) throw new Error("Gagal mengambil daftar model");
-          const data = await res.json();
-          const models = data.data.map(m => m.id);
-          setAvailableModels(models);
-          if (models.length > 0 && !appSettings.textModel) {
-            setAppSettings(prev => ({ ...prev, textModel: models[0] }));
-          }
-        } catch (e) {
-          alert("Error saat memuat model: " + e.message);
-        } finally {
-          setIsLoadingModels(false);
-        }
       };
 
       const handleConnectDrive = () => {
@@ -243,8 +216,7 @@
               bgmFileId: bgmFileId || "NONE",
               apiKeysList: cleanApiKeys.join(','), 
               slideDelay: appSettings.slideDelay.toString(),
-              targetFolderId: appSettings.driveFolderId || "NONE", // Mengirim ID Folder ke Server
-              textModel: appSettings.textModel || ""
+              targetFolderId: appSettings.driveFolderId || "NONE" // Mengirim ID Folder ke Server
             }
           })
         });
@@ -390,24 +362,6 @@
                       </select>
                     </div>
                   )}
-
-                  {/* Pilihan Model AI Text */}
-                  <div>
-                    <div className="flex justify-between items-center mb-2">
-                       <label className="block text-sm font-medium text-slate-300">Model AI Teks (LiteLLM)</label>
-                       <button onClick={fetchModels} disabled={isLoadingModels} className="text-xs bg-indigo-500/20 hover:bg-indigo-500/40 text-indigo-300 px-2 py-1 rounded">
-                         {isLoadingModels ? "Memuat..." : "Tarik Model"}
-                       </button>
-                    </div>
-                    {availableModels.length > 0 ? (
-                      <select value={appSettings.textModel || ''} onChange={(e) => setAppSettings({...appSettings, textModel: e.target.value})} className="w-full bg-slate-900 border border-slate-700 rounded-lg px-4 py-3 text-white text-sm focus:border-indigo-500 outline-none">
-                        <option value="" disabled>-- Pilih Model --</option>
-                        {availableModels.map(m => <option key={m} value={m}>{m}</option>)}
-                      </select>
-                    ) : (
-                      <input type="text" value={appSettings.textModel || ''} onChange={(e) => setAppSettings({...appSettings, textModel: e.target.value})} placeholder="Contoh: gemini-2.5-flash" className="w-full bg-slate-900 border border-slate-700 rounded-lg px-4 py-3 text-white text-sm focus:border-indigo-500 outline-none"/>
-                    )}
-                  </div>
 
                   <div>
                     <label className="block text-sm font-medium text-slate-300 mb-2">Gaya Bahasa Cerita</label>
