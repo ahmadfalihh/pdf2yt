@@ -33,11 +33,6 @@ on:
         required: false
         type: string
         default: 'NONE'
-      textModel:
-        description: 'Model Teks LiteLLM'
-        required: false
-        type: string
-        default: ''
 
 jobs:
   build-and-render:
@@ -63,7 +58,7 @@ jobs:
 
       - name: 🚀 Jalankan Mesin Utama (worker.js)
         run: |
-          node worker.js "${{ github.event.inputs.driveFileId }}" "${{ github.event.inputs.style }}" "${{ github.event.inputs.voice }}" "${{ github.event.inputs.bgmFileId }}" "${{ github.event.inputs.apiKeysList }}" "${{ github.event.inputs.slideDelay }}" "${{ github.event.inputs.targetFolderId }}" "${{ github.event.inputs.textModel }}"
+          node worker.js "${{ github.event.inputs.driveFileId }}" "${{ github.event.inputs.style }}" "${{ github.event.inputs.voice }}" "${{ github.event.inputs.bgmFileId }}" "${{ github.event.inputs.apiKeysList }}" "${{ github.event.inputs.slideDelay }}" "${{ github.event.inputs.targetFolderId }}"
         env:
           GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
           GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
