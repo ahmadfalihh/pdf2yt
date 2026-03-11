@@ -54,7 +54,7 @@ jobs:
           sudo apt-get install -y ffmpeg poppler-utils
 
       - name: 📦 Install Library Node.js
-        run: npm install @google/generative-ai googleapis fluent-ffmpeg
+        run: npm install openai googleapis fluent-ffmpeg
 
       - name: 🚀 Jalankan Mesin Utama (worker.js)
         run: |
