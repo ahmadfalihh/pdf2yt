@@ -241,7 +241,7 @@
         const validKeys = appSettings.apiKeys.filter(k => k.trim() !== '');
         if (validKeys.length === 0) {
           setShowSettings(true);
-          return alert("Masukkan minimal 1 Kunci API Gemini di pengaturan.");
+          return alert("Masukkan minimal 1 Kunci API KoboiLLM/LiteLLM di pengaturan.");
         }
 
         setIsProcessingBatch(true);
@@ -396,7 +396,7 @@
                 <div className="p-6 overflow-y-auto custom-scrollbar space-y-6">
                   {/* Bagian API Keys Gemini */}
                   <div className="bg-slate-800/50 p-4 rounded-lg border border-slate-700">
-                    <h4 className="text-sm font-medium text-amber-400 mb-1">Rotasi Kunci API Gemini</h4>
+                    <h4 className="text-sm font-medium text-amber-400 mb-1">Rotasi Kunci API KoboiLLM</h4>
                     <p className="text-xs text-slate-400 mb-3">Masukkan lebih dari 1 kunci untuk menghindari Limit (429). Server akan merotasi kunci ini secara otomatis.</p>
                     <div className="space-y-2">
                       {appSettings.apiKeys.map((key, index) => (
