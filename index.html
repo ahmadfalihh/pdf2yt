@@ -148,30 +148,21 @@
         }
         setIsLoadingModels(true);
         try {
-          const res = await fetch("https://litellm.koboi2026.biz.id/v1/models", {
-            headers: { "Authorization": `Bearer ${apiKey}` }
-          });
+          const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`);
           if (!res.ok) throw new Error("Gagal mengambil daftar model");
           const data = await res.json();
-          const allModels = data.data.map(m => m.id);
+          const allModels = data.models.map(m => m.name.replace('models/', ''));
 
-          // Klasifikasi canggih: singkirkan model khusus gambar 
-          const audioKeywords = ['tts', 'speech', 'audio', 'voice', 'elevenlabs'];
-          const imageKeywords = ['image', 'imagen', 'dall-e', 'dalle', 'midjourney'];
-
-          const audioModels = allModels.filter(m => audioKeywords.some(kw => m.toLowerCase().includes(kw)));
-          const textModels = allModels.filter(m =>
-            !audioModels.includes(m) &&
-            !imageKeywords.some(kw => m.toLowerCase().includes(kw))
-          );
+          const textModels = allModels.filter(m => m.includes("gemini"));
+          const audioModels = allModels.filter(m => m.includes("gemini-2"));
 
           setAvailableModels(textModels);
           setAvailableAudioModels(audioModels);
 
           setAppSettings(prev => ({
             ...prev,
-            textModel: prev.textModel || textModels[0] || "",
-            audioModel: prev.audioModel || audioModels[0] || ""
+            textModel: prev.textModel || textModels.find(m => m.includes('2.5-flash')) || textModels.find(m => m.includes('2.0-flash')) || textModels[0] || "",
+            audioModel: prev.audioModel || audioModels.find(m => m.includes('2.0-flash')) || audioModels[0] || ""
           }));
         } catch (e) {
           alert("Error saat memuat model: " + e.message);
@@ -437,7 +428,7 @@
                 {/* Pilihan Model AI Text */}
                 <div>
                   <div className="flex justify-between items-center mb-2">
-                    <label className="block text-sm font-medium text-slate-300">Model AI Teks (LiteLLM)</label>
+                    <label className="block text-sm font-medium text-slate-300">Model AI Teks (Gemini API)</label>
                     <button onClick={fetchModels} disabled={isLoadingModels} className="text-xs bg-indigo-500/20 hover:bg-indigo-500/40 text-indigo-300 px-2 py-1 rounded">
                       {isLoadingModels ? "Memuat..." : "Tarik Model"}
                     </button>
@@ -448,14 +439,14 @@
                       {availableModels.map(m => <option key={m} value={m}>{m}</option>)}
                     </select>
                   ) : (
-                    <input type="text" value={appSettings.textModel || ''} onChange={(e) => setAppSettings({ ...appSettings, textModel: e.target.value })} placeholder="Contoh: gemini-2.5-flash" className="w-full bg-slate-900 border border-slate-700 rounded-lg px-4 py-3 text-white text-sm focus:border-indigo-500 outline-none" />
+                    <input type="text" value={appSettings.textModel || ''} onChange={(e) => setAppSettings({ ...appSettings, textModel: e.target.value })} placeholder="Contoh: gemini-2.0-flash" className="w-full bg-slate-900 border border-slate-700 rounded-lg px-4 py-3 text-white text-sm focus:border-indigo-500 outline-none" />
                   )}
                 </div>
 
                 {/* Pilihan Model AI Audio (TTS) */}
                 <div className="mt-4">
                   <div className="flex justify-between items-center mb-2">
-                    <label className="block text-sm font-medium text-slate-300">Model AI Audio (LiteLLM)</label>
+                    <label className="block text-sm font-medium text-slate-300">Model AI Audio (Gemini API)</label>
                   </div>
                   {availableAudioModels.length > 0 ? (
                     <select value={appSettings.audioModel || ''} onChange={(e) => setAppSettings({ ...appSettings, audioModel: e.target.value })} className="w-full bg-slate-900 border border-slate-700 rounded-lg px-4 py-3 text-white text-sm focus:border-indigo-500 outline-none">
@@ -464,7 +455,7 @@
                     </select>
                   ) : (
                     <div className="w-full">
-                      <input type="text" value={appSettings.audioModel || ''} onChange={(e) => setAppSettings({ ...appSettings, audioModel: e.target.value })} placeholder="Cari tts-1 / elevenlabs" className="w-full bg-slate-900 border border-slate-700 rounded-lg px-4 py-3 text-white text-sm focus:border-indigo-500 outline-none" />
+                      <input type="text" value={appSettings.audioModel || ''} onChange={(e) => setAppSettings({ ...appSettings, audioModel: e.target.value })} placeholder="Contoh: gemini-2.0-flash" className="w-full bg-slate-900 border border-slate-700 rounded-lg px-4 py-3 text-white text-sm focus:border-indigo-500 outline-none" />
                       <p className="text-[10px] text-slate-500 mt-1">Belum ada model Audio yang ditarik, ketik manual jika tahu IDnya.</p>
                     </div>
                   )}
@@ -503,7 +494,7 @@
                 <div className="p-6 overflow-y-auto custom-scrollbar space-y-6">
                   {/* Bagian API Keys LiteLLM */}
                   <div className="bg-slate-800/50 p-4 rounded-lg border border-slate-700">
-                    <h4 className="text-sm font-medium text-amber-400 mb-1">Rotasi Kunci API LiteLLM</h4>
+                    <h4 className="text-sm font-medium text-amber-400 mb-1">Rotasi Kunci API Gemini</h4>
                     <p className="text-xs text-slate-400 mb-3">Masukkan lebih dari 1 kunci untuk menghindari Limit (429). Server akan merotasi kunci ini secara otomatis.</p>
                     <div className="space-y-2">
                       {appSettings.apiKeys.map((key, index) => (

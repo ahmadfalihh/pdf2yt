@@ -161,22 +161,17 @@ async function generateScript(imagePath, style, apiKey) {
   const prompt = `Anda narator profesional. Jelaskan materi di GAMBAR SLIDE ini secara langsung.\nGaya: ${style}.\nPanjang: 70-100 kata.\nBahasa: Indonesia.`;
 
   const payload = {
-    model: selectedTextModel,
-    messages: [
-      {
-        role: "user",
-        content: [
-          { type: "text", text: prompt },
-          { type: "image_url", image_url: { url: `data:image/jpeg;base64,${imageData}` } }
-        ]
-      }
-    ]
+    contents: [{
+      parts: [
+        { text: prompt },
+        { inline_data: { mime_type: "image/jpeg", data: imageData } }
+      ]
+    }]
   };
 
-  const res = await fetch("https://litellm.koboi2026.biz.id/v1/chat/completions", {
+  const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${selectedTextModel}:generateContent?key=${apiKey}`, {
     method: "POST",
     headers: {
-      "Authorization": `Bearer ${apiKey}`,
       "Content-Type": "application/json"
     },
     body: JSON.stringify(payload)
@@ -188,21 +183,31 @@ async function generateScript(imagePath, style, apiKey) {
   }
 
   const data = await res.json();
-  return data.choices[0].message.content;
+  if (!data.candidates || data.candidates.length === 0) throw new Error("Tidak ada balasan dari model teks.");
+  return data.candidates[0].content.parts[0].text;
 }
 
 async function generateAudio(text, voiceName, outputPath, apiKey) {
-  const url = `https://litellm.koboi2026.biz.id/v1/audio/speech`;
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${selectedAudioModel}:generateContent?key=${apiKey}`;
   const payload = {
-    model: selectedAudioModel,
-    input: text,
-    voice: voiceName
+    contents: [{
+      parts: [{ text: text }]
+    }],
+    generationConfig: {
+      responseModalities: ["AUDIO"],
+      speechConfig: {
+        voiceConfig: {
+          prebuiltVoiceConfig: {
+            voiceName: voiceName
+          }
+        }
+      }
+    }
   };
 
   const res = await fetch(url, {
     method: 'POST',
     headers: {
-      'Authorization': `Bearer ${apiKey}`,
       'Content-Type': 'application/json'
     },
     body: JSON.stringify(payload)
@@ -213,8 +218,16 @@ async function generateAudio(text, voiceName, outputPath, apiKey) {
     throw new Error(`429: Gagal generate audio: ${res.status} - ${errText}`);
   }
 
-  const arrayBuffer = await res.arrayBuffer();
-  fs.writeFileSync(outputPath, Buffer.from(arrayBuffer));
+  const data = await res.json();
+  if(!data.candidates || data.candidates.length === 0) throw new Error("Tidak ada balasan dari model audio.");
+
+  const parts = data.candidates[0].content.parts;
+  const audioPart = parts.find(p => p.inlineData && p.inlineData.mimeType.startsWith('audio/'));
+  
+  if (!audioPart) throw new Error("Data audio tidak ditemukan di response Gemini");
+  
+  const audioBase64 = audioPart.inlineData.data;
+  fs.writeFileSync(outputPath, Buffer.from(audioBase64, 'base64'));
 }
 
 async function renderVideo(slides, finalOutput, bgmPath) {
@@ -276,14 +289,15 @@ async function generateYouTubeMetadata(fullScript, apiKey) {
   ${fullScript}`;
 
   const payload = {
-    model: selectedTextModel,
-    messages: [{ role: "user", content: prompt }]
+    contents: [{ parts: [{ text: prompt }] }],
+    generationConfig: {
+      responseMimeType: "application/json"
+    }
   };
 
-  const res = await fetch("https://litellm.koboi2026.biz.id/v1/chat/completions", {
+  const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${selectedTextModel}:generateContent?key=${apiKey}`, {
     method: "POST",
     headers: {
-      "Authorization": `Bearer ${apiKey}`,
       "Content-Type": "application/json"
     },
     body: JSON.stringify(payload)
@@ -295,7 +309,9 @@ async function generateYouTubeMetadata(fullScript, apiKey) {
   }
 
   const data = await res.json();
-  let text = data.choices[0].message.content;
+  if(!data.candidates || data.candidates.length === 0) throw new Error("Tidak ada balasan dari model teks (SEO).");
+  
+  let text = data.candidates[0].content.parts[0].text;
   text = text.replace(/```json/gi, '').replace(/```/gi, '').trim();
   return JSON.parse(text);
 }
