@@ -5,11 +5,9 @@ const fs = require('fs');
 const path = require('path');
 const { execSync } = require('child_process');
 
-const [driveFileId, style, voice, bgmFileId, apiKeysList, slideDelayStr, targetFolderId, textModel, audioModel] = process.argv.slice(2);
+const [driveFileId, style, voice, bgmFileId, apiKeysList, slideDelayStr, targetFolderId] = process.argv.slice(2);
 
 const apiKeys = apiKeysList.split(',').filter(k => k.trim() !== '');
-const selectedTextModel = textModel || "gemini-2.5-flash";
-const selectedAudioModel = audioModel || "tts-1";
 const slideDelayMs = Math.max((parseInt(slideDelayStr) || 15) * 1000, 20000); // Paksa minimal jeda 20 detik antar slide agar aman
 let currentKeyIndex = 0;
 
@@ -53,13 +51,13 @@ async function main() {
 
     console.log(`🧠 Memulai proses AI Text-to-Speech...`);
     const slidesData = [];
-    let fullScriptText = "";
-
+    let fullScriptText = ""; 
+    
     for (let i = 0; i < imagePaths.length; i++) {
       console.log(`   Memproses AI untuk slide ${i + 1}/${imagePaths.length}...`);
       const imgPath = imagePaths[i];
-      const audioPath = path.join(TEMP_DIR, `audio_${i}.mp3`); // Menyimpan dalam format aslinya (MP3 dll)
-
+      const audioPath = path.join(TEMP_DIR, `audio_${i}.wav`);
+      
       let success = false;
       let retries = 0;
       const maxRetries = 5; // Ditingkatkan jadi 5 kali percobaan
@@ -68,41 +66,39 @@ async function main() {
       while (!success && retries < maxRetries) {
         try {
           console.log(`      -> Memakai API Key berakhiran: ...${usedKey.slice(-4)}`);
-
+          
           const script = await generateScript(imgPath, style, usedKey);
-
+          
           // JEDA AMAN: Napas 5 detik sebelum minta audio agar tidak kena burst limit
           console.log(`      -> Teks berhasil. Menunggu 5 detik sebelum generate audio...`);
-          await new Promise(r => setTimeout(r, 5000));
-
+          await new Promise(r => setTimeout(r, 5000)); 
+          
           await generateAudio(script, voice, audioPath, usedKey);
-
+          
           fullScriptText += script + "\n\n";
           slidesData.push({ image: imgPath, audio: audioPath });
           success = true;
-
+          
         } catch (error) {
-          const errMsg = error.message || "";
-          if (errMsg.includes('429') || errMsg.includes('RESOURCE_EXHAUSTED') || errMsg.includes('Too Many Requests') || errMsg.includes('rate limit')) {
+          if (error.message.includes('429') || error.message.includes('RESOURCE_EXHAUSTED')) {
             // Waktu tunggu bertingkat: 30s, 60s, 90s, 120s, 150s
-            const waitTime = 30000 * (retries + 1);
-            console.log(`   ⚠️ Limit Kuota Gagal (429). Pesan: ${errMsg.substring(0, 50)}... Rotasi Kunci & Istirahat panjang ${waitTime / 1000} detik (Coba ${retries + 1}/${maxRetries})...`);
-
-            usedKey = getNextApiKey();
+            const waitTime = 30000 * (retries + 1); 
+            console.log(`   ⚠️ Limit Kuota (429). Rotasi Kunci & Istirahat panjang ${waitTime/1000} detik (Coba ${retries + 1}/${maxRetries})...`);
+            
+            usedKey = getNextApiKey(); 
             await new Promise(r => setTimeout(r, waitTime));
             retries++;
           } else {
-            console.error(`   ❌ Error Gagal Generate AI: `, errMsg);
             throw error; // Lempar jika errornya selain urusan limit
           }
         }
       }
 
       if (!success) throw new Error(`Gagal memproses slide ${i + 1} setelah ${maxRetries} kali mencoba. Kemungkinan Limit Harian habis.`);
-
+      
       if (i < imagePaths.length - 1) {
-        console.log(`   ⏳ Slide selesai. Jeda ritme aman ${slideDelayMs / 1000} detik ke slide berikutnya...`);
-        await new Promise(r => setTimeout(r, slideDelayMs));
+          console.log(`   ⏳ Slide selesai. Jeda ritme aman ${slideDelayMs/1000} detik ke slide berikutnya...`);
+          await new Promise(r => setTimeout(r, slideDelayMs));
       }
     }
 
@@ -113,12 +109,12 @@ async function main() {
     console.log('☁️ Mengunggah ke Google Drive...');
     const finalVideoName = `Video_Auto_${Date.now()}.mp4`;
     const finalVideoId = await uploadToDrive(outputVideoPath, finalVideoName, 'video/mp4', targetFolderId);
-
+    
     // --- FITUR YOUTUBE & SEO ---
     console.log('📝 Gemini sedang menyusun Metadata YouTube (Jeda 10 detik dulu)...');
     await new Promise(r => setTimeout(r, 10000)); // Jeda sebelum panggil AI lagi
     const seoData = await generateYouTubeMetadata(fullScriptText, getNextApiKey());
-
+    
     console.log(`▶️ Mengunggah ke YouTube dengan judul: "${seoData.title}"...`);
     const ytVideoId = await uploadToYouTube(outputVideoPath, seoData, thumbnailPath);
     const ytLink = `https://youtu.be/${ytVideoId}`;
@@ -134,7 +130,7 @@ async function main() {
   } catch (error) {
     console.error('❌ TERJADI KESALAHAN FATAL:', error);
     await sendWhatsAppNotification(`❌ *ERROR SISTEM*\n\nTerjadi kegagalan memproses video. Pesan: ${error.message.substring(0, 100)}`);
-    process.exit(1);
+    process.exit(1); 
   }
 }
 
@@ -157,77 +153,55 @@ async function extractPdfToImages(pdfPath, outputDir) {
 }
 
 async function generateScript(imagePath, style, apiKey) {
+  const genAI = new GoogleGenerativeAI(apiKey);
+  const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
   const imageData = fs.readFileSync(imagePath).toString("base64");
   const prompt = `Anda narator profesional. Jelaskan materi di GAMBAR SLIDE ini secara langsung.\nGaya: ${style}.\nPanjang: 70-100 kata.\nBahasa: Indonesia.`;
+  const result = await model.generateContent([ prompt, { inlineData: { data: imageData, mimeType: "image/jpeg" } } ]);
+  return result.response.text();
+}
 
-  const payload = {
-    contents: [{
-      parts: [
-        { text: prompt },
-        { inline_data: { mime_type: "image/jpeg", data: imageData } }
-      ]
-    }]
-  };
+// Mengubah PCM Mentah menjadi File WAV yang valid agar FFmpeg tidak error
+function pcmToWavBuffer(pcmData, sampleRate = 24000) {
+  const numChannels = 1;
+  const bitsPerSample = 16;
+  const byteRate = sampleRate * numChannels * (bitsPerSample / 8);
+  const blockAlign = numChannels * (bitsPerSample / 8);
+  const dataSize = pcmData.length;
 
-  const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${selectedTextModel}:generateContent?key=${apiKey}`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify(payload)
-  });
+  const buffer = Buffer.alloc(44 + dataSize);
+  buffer.write('RIFF', 0);
+  buffer.writeUInt32LE(36 + dataSize, 4);
+  buffer.write('WAVE', 8);
+  buffer.write('fmt ', 12);
+  buffer.writeUInt32LE(16, 16);
+  buffer.writeUInt16LE(1, 20);
+  buffer.writeUInt16LE(numChannels, 22);
+  buffer.writeUInt32LE(sampleRate, 24);
+  buffer.writeUInt32LE(byteRate, 28);
+  buffer.writeUInt16LE(blockAlign, 32);
+  buffer.writeUInt16LE(bitsPerSample, 34);
+  buffer.write('data', 36);
+  buffer.writeUInt32LE(dataSize, 40);
+  pcmData.copy(buffer, 44);
 
-  if (!res.ok) {
-    const errText = await res.text();
-    throw new Error(`429: Gagal generate script: ${res.status} - ${errText}`);
-  }
-
-  const data = await res.json();
-  if (!data.candidates || data.candidates.length === 0) throw new Error("Tidak ada balasan dari model teks.");
-  return data.candidates[0].content.parts[0].text;
+  return buffer;
 }
 
 async function generateAudio(text, voiceName, outputPath, apiKey) {
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${selectedAudioModel}:generateContent?key=${apiKey}`;
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-tts:generateContent?key=${apiKey}`;
   const payload = {
-    contents: [{
-      parts: [{ text: text }]
-    }],
-    generationConfig: {
-      responseModalities: ["AUDIO"],
-      speechConfig: {
-        voiceConfig: {
-          prebuiltVoiceConfig: {
-            voiceName: voiceName
-          }
-        }
-      }
-    }
+    contents: [{ parts: [{ text: text }] }],
+    generationConfig: { responseModalities: ["AUDIO"], speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: voiceName } } } },
+    model: "gemini-2.5-flash-preview-tts"
   };
-
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify(payload)
-  });
-
-  if (!res.ok) {
-    const errText = await res.text();
-    throw new Error(`429: Gagal generate audio: ${res.status} - ${errText}`);
-  }
-
+  const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+  if (!res.ok) throw new Error(`429: Gagal generate audio`); 
   const data = await res.json();
-  if(!data.candidates || data.candidates.length === 0) throw new Error("Tidak ada balasan dari model audio.");
-
-  const parts = data.candidates[0].content.parts;
-  const audioPart = parts.find(p => p.inlineData && p.inlineData.mimeType.startsWith('audio/'));
   
-  if (!audioPart) throw new Error("Data audio tidak ditemukan di response Gemini");
-  
-  const audioBase64 = audioPart.inlineData.data;
-  fs.writeFileSync(outputPath, Buffer.from(audioBase64, 'base64'));
+  const pcmBuffer = Buffer.from(data.candidates[0].content.parts[0].inlineData.data, 'base64');
+  const wavBuffer = pcmToWavBuffer(pcmBuffer, 24000);
+  fs.writeFileSync(outputPath, wavBuffer);
 }
 
 async function renderVideo(slides, finalOutput, bgmPath) {
@@ -241,10 +215,10 @@ async function renderVideo(slides, finalOutput, bgmPath) {
     });
     clipPaths.push(clipPath);
   }
-
+  
   const concatListPath = path.join(TEMP_DIR, 'concat.txt');
   fs.writeFileSync(concatListPath, clipPaths.map(p => `file '${p}'`).join('\n'));
-
+  
   const rawVideoPath = path.join(TEMP_DIR, 'raw_video.mp4');
   await new Promise((resolve, reject) => {
     ffmpeg().input(concatListPath).inputOptions(['-f concat', '-safe 0']).outputOptions('-c copy')
@@ -271,6 +245,8 @@ async function uploadToDrive(filePath, fileName, mimeType, folderId) {
 }
 
 async function generateYouTubeMetadata(fullScript, apiKey) {
+  const genAI = new GoogleGenerativeAI(apiKey);
+  const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
   const prompt = `Anda adalah pakar SEO YouTube. Buatkan metadata untuk video berdasarkan skrip narasi berikut ini.
   
   ATURAN WAJIB:
@@ -288,30 +264,8 @@ async function generateYouTubeMetadata(fullScript, apiKey) {
   SKRIP VIDEO:
   ${fullScript}`;
 
-  const payload = {
-    contents: [{ parts: [{ text: prompt }] }],
-    generationConfig: {
-      responseMimeType: "application/json"
-    }
-  };
-
-  const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${selectedTextModel}:generateContent?key=${apiKey}`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify(payload)
-  });
-
-  if (!res.ok) {
-    const errText = await res.text();
-    throw new Error(`429: Gagal generate metadata: ${res.status} - ${errText}`);
-  }
-
-  const data = await res.json();
-  if(!data.candidates || data.candidates.length === 0) throw new Error("Tidak ada balasan dari model teks (SEO).");
-  
-  let text = data.candidates[0].content.parts[0].text;
+  const result = await model.generateContent(prompt);
+  let text = result.response.text();
   text = text.replace(/```json/gi, '').replace(/```/gi, '').trim();
   return JSON.parse(text);
 }
@@ -324,10 +278,10 @@ async function uploadToYouTube(videoPath, seoData, thumbnailPath) {
         title: seoData.title,
         description: seoData.description,
         tags: seoData.tags,
-        categoryId: '27'
+        categoryId: '27' 
       },
       status: {
-        privacyStatus: 'private',
+        privacyStatus: 'private', 
         selfDeclaredMadeForKids: false
       }
     },
@@ -348,9 +302,9 @@ async function uploadToYouTube(videoPath, seoData, thumbnailPath) {
 }
 
 async function sendWhatsAppNotification(message) {
-  const phone = process.env.WA_PHONE;
-  const apiKey = process.env.WA_API_KEY;
-
+  const phone = process.env.WA_PHONE; 
+  const apiKey = process.env.WA_API_KEY; 
+  
   if (!phone || !apiKey) {
     console.log("⚠️ Lewati notifikasi WA karena kredensial WA belum diatur di GitHub Secrets.");
     return;
